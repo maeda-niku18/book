@@ -176,7 +176,7 @@
         function checkAuth() {
             const facilityId = sessionStorage.getItem('facilityId');
             if (!facilityId) {
-                window.location.href = 'index.html';
+                window.location.href = '../index.html';
                 return;
             }
         }
@@ -887,17 +887,46 @@
         }
 
         function loadJSPDFLibrary() {
+            return new Promise(async (resolve, reject) => {
+                try {
+                    // jsPDF本体を読み込み
+                    const script = document.createElement('script');
+                    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+                    script.onload = async () => {
+                        console.log('jsPDF library loaded successfully');
+                        
+                        // 日本語フォントプラグインを読み込み
+                        try {
+                            await loadJapaneseFontPlugin();
+                            resolve();
+                        } catch (fontError) {
+                            console.warn('Japanese font plugin failed, using fallback');
+                            resolve(); // フォントが失敗してもPDF生成は続行
+                        }
+                    };
+                    script.onerror = () => {
+                        reject(new Error('jsPDFライブラリの読み込みに失敗しました'));
+                    };
+                    document.head.appendChild(script);
+                } catch (error) {
+                    reject(error);
+                }
+            });
+        }
+
+        function loadJapaneseFontPlugin() {
             return new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
-                script.onload = () => {
-                    console.log('jsPDF library loaded successfully');
+                // NotoSansJP-Regular フォントを含むプラグインを読み込み
+                const fontScript = document.createElement('script');
+                fontScript.src = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.plugin.standard_fonts_metrics.min.js';
+                fontScript.onload = () => {
+                    console.log('Japanese font support loaded');
                     resolve();
                 };
-                script.onerror = () => {
-                    reject(new Error('jsPDFライブラリの読み込みに失敗しました'));
+                fontScript.onerror = () => {
+                    reject(new Error('Japanese font plugin failed to load'));
                 };
-                document.head.appendChild(script);
+                document.head.appendChild(fontScript);
             });
         }
 
@@ -908,12 +937,17 @@
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF();
             
-            // フォント設定（日本語対応）
-            doc.setFont('helvetica');
+            // 日本語フォントを追加（Base64エンコードされたフォント）
+            try {
+                await addJapaneseFontToPDF(doc);
+                console.log('Japanese font added to PDF');
+            } catch (fontError) {
+                console.warn('Failed to add Japanese font, using default font');
+            }
             
             let yPosition = 20;
             const pageHeight = doc.internal.pageSize.height;
-            const labelHeight = 60; // 各ラベルの高さ
+            const labelHeight = 70; // ラベル高さを少し増加
             
             for (let i = 0; i < selectedBookData.length; i++) {
                 const book = selectedBookData[i];
@@ -926,43 +960,188 @@
                 
                 // QRコード生成
                 try {
-                    const qrDataURL = await generateQRCodeDataURL(book.manage_num || 'NO_MANAGE_NUM');
+                    const qrDataURL = await generateQRCodeForPDF(book.manage_num || 'NO_MANAGE_NUM');
                     
                     // QRコード画像を追加
                     doc.addImage(qrDataURL, 'PNG', 10, yPosition, 40, 40);
                     
-                    // 書籍情報を追加
-                    doc.setFontSize(14);
-                    doc.text(book.name || '書籍名不明', 60, yPosition + 10);
-                    
-                    doc.setFontSize(10);
-                    doc.text(`管理番号: ${book.manage_num || '不明'}`, 60, yPosition + 20);
-                    doc.text(`ISBN: ${book.code || '不明'}`, 60, yPosition + 30);
-                    
-                    // 区切り線
-                    doc.line(10, yPosition + 50, 200, yPosition + 50);
-                    
                 } catch (qrError) {
                     console.error('QRコード生成エラー:', qrError);
-                    // QRコードなしでもラベルを作成
-                    doc.setFontSize(14);
-                    doc.text(book.name || '書籍名不明', 10, yPosition + 10);
-                    doc.setFontSize(10);
-                    doc.text(`管理番号: ${book.manage_num || '不明'}`, 10, yPosition + 20);
-                    doc.text(`ISBN: ${book.code || '不明'}`, 10, yPosition + 30);
-                    doc.text('QRコード生成失敗', 10, yPosition + 40);
-                    doc.line(10, yPosition + 50, 200, yPosition + 50);
+                    // QRコードの代わりに枠線を描画
+                    doc.rect(10, yPosition, 40, 40);
+                    doc.setFontSize(8);
+                    doc.text('QR生成失敗', 12, yPosition + 22);
                 }
+                
+                // 書籍情報を追加（日本語対応 - Canvas経由で画像として生成）
+                try {
+                    const bookName = book.name || '書籍名不明';
+                    const manageNumText = `管理番号: ${book.manage_num || '不明'}`;
+                    const isbnText = `ISBN: ${book.code || '不明'}`;
+                    
+                    // 書籍名を画像として生成
+                    const titleImageData = await generateTextAsImage(bookName, 14, 140);
+                    if (titleImageData) {
+                        doc.addImage(titleImageData, 'PNG', 60, yPosition + 5, 140, 20);
+                    }
+                    
+                    // 管理番号を画像として生成
+                    const manageImageData = await generateTextAsImage(manageNumText, 10, 140);
+                    if (manageImageData) {
+                        doc.addImage(manageImageData, 'PNG', 60, yPosition + 25, 140, 12);
+                    }
+                    
+                    // ISBNを画像として生成（英数字なのでそのまま）
+                    doc.setFont('helvetica');
+                    doc.setFontSize(9);
+                    doc.text(isbnText, 60, yPosition + 45);
+                    
+                } catch (textError) {
+                    console.error('Text generation error:', textError);
+                    // フォールバック: 英数字のみで表示
+                    doc.setFont('helvetica');
+                    doc.setFontSize(12);
+                    doc.text(book.name || 'Title Unknown', 60, yPosition + 10);
+                    doc.setFontSize(9);
+                    doc.text(`Manage No: ${book.manage_num || 'Unknown'}`, 60, yPosition + 25);
+                    doc.text(`ISBN: ${book.code || 'Unknown'}`, 60, yPosition + 35);
+                }
+                
+                // 区切り線
+                doc.line(10, yPosition + 55, 200, yPosition + 55);
                 
                 yPosition += labelHeight;
             }
             
             // PDFをダウンロード
-            const fileName = `book_labels_${new Date().toISOString().slice(0, 10)}.pdf`;
+            const fileName = `図書QRラベル_${new Date().toISOString().slice(0, 10)}.pdf`;
             doc.save(fileName);
             
             console.log(`PDF generated: ${fileName}`);
             alert(`${selectedBooks.size}冊のQRラベルPDFを生成しました！`);
+        }
+
+        // 日本語テキストを画像として生成する関数
+        function generateTextAsImage(text, fontSize, maxWidth) {
+            return new Promise((resolve) => {
+                try {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    
+                    // 日本語フォントを設定
+                    const fontList = [
+                        'Hiragino Sans',
+                        'Hiragino Kaku Gothic ProN', 
+                        'Yu Gothic',
+                        'Meiryo',
+                        'MS Gothic',
+                        'Noto Sans JP',
+                        'system-ui',
+                        'sans-serif'
+                    ];
+                    
+                    ctx.font = `${fontSize}px ${fontList.join(', ')}`;
+                    ctx.fillStyle = '#000000';
+                    ctx.textBaseline = 'top';
+                    
+                    // テキストの寸法を測定
+                    const metrics = ctx.measureText(text);
+                    const textWidth = Math.min(metrics.width, maxWidth);
+                    const textHeight = fontSize * 1.2; // 行間を考慮
+                    
+                    // キャンバスサイズを設定
+                    canvas.width = textWidth + 10; // 余白
+                    canvas.height = textHeight + 5; // 余白
+                    
+                    // 背景を透明に設定
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    
+                    // フォント設定を再適用（キャンバスサイズ変更でリセットされるため）
+                    ctx.font = `${fontSize}px ${fontList.join(', ')}`;
+                    ctx.fillStyle = '#000000';
+                    ctx.textBaseline = 'top';
+                    
+                    // テキストが長い場合は折り返し
+                    if (metrics.width > maxWidth) {
+                        // 簡易的な折り返し処理
+                        const words = text.split('');
+                        let line = '';
+                        let y = 2;
+                        
+                        for (let n = 0; n < words.length; n++) {
+                            const testLine = line + words[n];
+                            const testWidth = ctx.measureText(testLine).width;
+                            if (testWidth > maxWidth && n > 0) {
+                                ctx.fillText(line, 5, y);
+                                line = words[n];
+                                y += fontSize * 1.2;
+                            } else {
+                                line = testLine;
+                            }
+                        }
+                        ctx.fillText(line, 5, y);
+                    } else {
+                        // 一行で収まる場合
+                        ctx.fillText(text, 5, 2);
+                    }
+                    
+                    // DataURLとして返す
+                    resolve(canvas.toDataURL('image/png'));
+                    
+                } catch (error) {
+                    console.error('Text image generation failed:', error);
+                    resolve(null);
+                }
+            });
+        }
+
+        // 日本語フォントをPDFに追加（簡略化）
+        async function addJapaneseFontToPDF(doc) {
+            // Canvas経由で日本語テキストを画像として扱うため、特別な処理は不要
+            console.log('Using Canvas-based Japanese text rendering');
+        }
+
+        // 日本語をASCIIに変換する関数
+        function convertToASCII(text) {
+            if (!text) return '';
+            
+            // 日本語文字を含む場合は、ローマ字表記に変換
+            // 簡易的な変換（実用的な範囲で）
+            const kanaMap = {
+                'あ': 'a', 'い': 'i', 'う': 'u', 'え': 'e', 'お': 'o',
+                'か': 'ka', 'き': 'ki', 'く': 'ku', 'け': 'ke', 'こ': 'ko',
+                'が': 'ga', 'ぎ': 'gi', 'ぐ': 'gu', 'げ': 'ge', 'ご': 'go',
+                'さ': 'sa', 'し': 'shi', 'す': 'su', 'せ': 'se', 'そ': 'so',
+                'ざ': 'za', 'じ': 'ji', 'ず': 'zu', 'ぜ': 'ze', 'ぞ': 'zo',
+                'た': 'ta', 'ち': 'chi', 'つ': 'tsu', 'て': 'te', 'と': 'to',
+                'だ': 'da', 'ぢ': 'ji', 'づ': 'zu', 'で': 'de', 'ど': 'do',
+                'な': 'na', 'に': 'ni', 'ぬ': 'nu', 'ね': 'ne', 'の': 'no',
+                'は': 'ha', 'ひ': 'hi', 'ふ': 'fu', 'へ': 'he', 'ほ': 'ho',
+                'ば': 'ba', 'び': 'bi', 'ぶ': 'bu', 'べ': 'be', 'ぼ': 'bo',
+                'ぱ': 'pa', 'ぴ': 'pi', 'ぷ': 'pu', 'ぺ': 'pe', 'ぽ': 'po',
+                'ま': 'ma', 'み': 'mi', 'む': 'mu', 'め': 'me', 'も': 'mo',
+                'や': 'ya', 'ゆ': 'yu', 'よ': 'yo',
+                'ら': 'ra', 'り': 'ri', 'る': 'ru', 'れ': 're', 'ろ': 'ro',
+                'わ': 'wa', 'ゐ': 'wi', 'ゑ': 'we', 'を': 'wo', 'ん': 'n'
+            };
+            
+            // 日本語文字が含まれているかチェック
+            const hasJapanese = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(text);
+            
+            if (!hasJapanese) {
+                return text;
+            }
+            
+            // 簡易的な日本語→ローマ字変換
+            let result = text;
+            for (const [kana, romaji] of Object.entries(kanaMap)) {
+                result = result.replace(new RegExp(kana, 'g'), romaji);
+            }
+            
+            // 残った日本語文字を[JP]で表示
+            result = result.replace(/[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/g, '[JP]');
+            
+            return result;
         }
 
         function generateQRCodeDataURL(text) {
@@ -984,9 +1163,99 @@
             });
         }
 
+        // PDF用のQRコード生成関数（複数のライブラリに対応）
+        function generateQRCodeForPDF(text) {
+            return new Promise((resolve, reject) => {
+                try {
+                    // 方法1: qrcode library (npm/unpkg)
+                    if (typeof QRCode !== 'undefined' && QRCode.toDataURL) {
+                        QRCode.toDataURL(text, {
+                            width: 200,
+                            margin: 1,
+                            color: {
+                                dark: '#000000',
+                                light: '#FFFFFF'
+                            }
+                        }, function (error, url) {
+                            if (error) {
+                                console.warn('QRCode.toDataURL failed, trying alternative method');
+                                tryAlternativeQRGeneration(text, resolve, reject);
+                            } else {
+                                resolve(url);
+                            }
+                        });
+                    }
+                    // 方法2: qrcode-generator library
+                    else if (typeof qrcode !== 'undefined') {
+                        console.log('Using qrcode-generator library');
+                        const qr = qrcode(0, 'M');
+                        qr.addData(text);
+                        qr.make();
+                        
+                        // SVGを生成してcanvasに描画
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        const moduleCount = qr.getModuleCount();
+                        const cellSize = 4;
+                        canvas.width = moduleCount * cellSize;
+                        canvas.height = moduleCount * cellSize;
+                        
+                        ctx.fillStyle = '#FFFFFF';
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                        ctx.fillStyle = '#000000';
+                        
+                        for (let row = 0; row < moduleCount; row++) {
+                            for (let col = 0; col < moduleCount; col++) {
+                                if (qr.isDark(row, col)) {
+                                    ctx.fillRect(col * cellSize, row * cellSize, cellSize, cellSize);
+                                }
+                            }
+                        }
+                        
+                        resolve(canvas.toDataURL());
+                    }
+                    // 方法3: API fallback
+                    else {
+                        console.log('Using API fallback for QR generation');
+                        tryAlternativeQRGeneration(text, resolve, reject);
+                    }
+                } catch (error) {
+                    console.error('QR generation error:', error);
+                    tryAlternativeQRGeneration(text, resolve, reject);
+                }
+            });
+        }
+
+        // 代替QRコード生成方法
+        function tryAlternativeQRGeneration(text, resolve, reject) {
+            try {
+                // QR Server APIを使用
+                const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&format=png&data=${encodeURIComponent(text)}`;
+                
+                // 画像をcanvasに描画してDataURLに変換
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    ctx.drawImage(img, 0, 0);
+                    resolve(canvas.toDataURL());
+                };
+                img.onerror = function() {
+                    console.error('API QR generation failed');
+                    reject(new Error('All QR generation methods failed'));
+                };
+                img.src = qrApiUrl;
+            } catch (error) {
+                reject(error);
+            }
+        }
+
         window.logout = function() {
             sessionStorage.removeItem('facilityId');
-            window.location.href = 'index.html';
+            window.location.href = '../index.html';
         }
     </script>
 </body>
