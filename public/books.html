@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>図書管理システム - 書籍管理</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="sidebar">
+        <h2>📚 図書管理</h2>
+        <a href="home.html">ホーム</a>
+        <a href="books.html">書籍管理</a>
+        <a href="users.html">ユーザー管理</a>
+        <a href="#" onclick="logout()">ログアウト</a>
+    </div>
+
+    <div class="main-content">
+        <h1>書籍管理</h1>
+        
+        <!-- 新規登録セクション -->
+        <div class="card">
+            <h2>📚 新規書籍登録</h2>
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;">
+                <button class="btn btn-primary" onclick="showQRCode()">📱 QRコードでスマホ登録</button>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <input type="text" id="quick-isbn" placeholder="ISBNコードを直接入力" style="width: 200px;">
+                    <button class="btn" onclick="quickRegister()">検索・登録</button>
+                </div>
+            </div>
+            
+            <!-- QRコード表示エリア -->
+            <div id="qr-section" style="display: none; margin-top: 1rem; text-align: center;">
+                <p>スマートフォンで以下のQRコードを読み取ってください：</p>
+                <div id="qrcode-display" style="display: inline-block; margin: 1rem 0;"></div>
+                <p style="font-size: 0.9rem; color: #666;">
+                    QRコードが表示されない場合：<br>
+                    <span id="scanner-url-display" style="font-family: monospace; background: #f0f0f0; padding: 0.2rem;"></span>
+                </p>
+                <button class="btn" onclick="hideQRCode()">QRコードを閉じる</button>
+            </div>
+        </div>
+
+        <!-- 検索・フィルターセクション -->
+        <div class="card">
+            <h2>📖 書籍一覧・検索</h2>
+            <input type="text" id="search-input" class="search-box" placeholder="書籍名で検索...">
+            <div style="margin-top: 1rem;">
+                <label>
+                    <input type="checkbox" id="filter-available" checked> 貸出可能
+                </label>
+                <label style="margin-left: 1rem;">
+                    <input type="checkbox" id="filter-borrowed" checked> 貸出中
+                </label>
+            </div>
+            
+            <!-- QRコード発行セクション -->
+            <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #eee;">
+                <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                    <button class="btn" onclick="toggleQRMode()" id="qr-mode-btn">
+                        🏷️ QRラベル発行モード
+                    </button>
+                    <div id="qr-controls" style="display: none; flex: 1;">
+                        <button class="btn" onclick="selectAllBooks()">すべて選択</button>
+                        <button class="btn" onclick="clearAllBooks()">選択解除</button>
+                        <button class="btn btn-primary" onclick="generateQRPDF()">
+                            📄 選択した書籍のQRラベルPDF作成
+                        </button>
+                        <span id="selected-count" style="margin-left: 1rem; font-size: 0.9rem; color: #666;"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="books-container" class="book-list">
+            <!-- 書籍リストがここに表示されます -->
+        </div>
+    </div>
+
+    <!-- 書籍詳細モーダル -->
+    <div id="book-modal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <div id="book-details">
+                <!-- 書籍詳細がここに表示されます -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 書籍編集モーダル -->
+    <div id="edit-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-edit">&times;</span>
+            <h2>📝 書籍情報編集</h2>
+            <div id="edit-form">
+                <div class="form-group">
+                    <label for="edit-name">書籍名</label>
+                    <input type="text" id="edit-name" readonly style="background: #f5f5f5;">
+                </div>
+                <div class="form-group">
+                    <label for="edit-code">ISBNコード</label>
+                    <input type="text" id="edit-code" readonly style="background: #f5f5f5;">
+                </div>
+                <div class="form-group">
+                    <label for="edit-manage-num">管理番号 *</label>
+                    <input type="text" id="edit-manage-num" required>
+                </div>
+                <div class="form-group">
+                    <label for="edit-location">配置場所</label>
+                    <input type="text" id="edit-location" placeholder="例：絵本コーナー A-1">
+                </div>
+                <div class="form-group">
+                    <label for="edit-remarks">備考</label>
+                    <textarea id="edit-remarks" rows="3" placeholder="書籍に関する備考"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="edit-user-status">貸出状況</label>
+                    <select id="edit-user-status">
+                        <option value="">貸出可能</option>
+                        <option value="manual">手動で貸出中に設定</option>
+                    </select>
+                </div>
+                <div class="form-group" id="user-id-group" style="display: none;">
+                    <label for="edit-user-id">貸出ユーザーID</label>
+                    <input type="text" id="edit-user-id" placeholder="ユーザーIDを入力">
+                </div>
+                <div style="margin-top: 2rem;">
+                    <button class="btn btn-primary" onclick="saveBookChanges()">保存</button>
+                    <button class="btn" onclick="closeEditModal()" style="margin-left: 1rem;">キャンセル</button>
+                    <button class="btn" onclick="deleteBook()" style="margin-left: 1rem; background-color: #e3342f;">削除</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getFirestore, collection, getDocs, doc, getDoc, updateDoc, deleteDoc, addDoc, query, where } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBKhb3ctxhr-KT_4z32Iyfjo_tOc7LpImA",
+            authDomain: "auth-test-ba58c.firebaseapp.com",
+            projectId: "auth-test-ba58c",
+            storageBucket: "auth-test-ba58c.firebasestorage.app",
+            messagingSenderId: "856692946306",
+            appId: "1:856692946306:web:d8cbddf97686f542bd0b9b"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        let allBooks = [];
+        let currentFilters = {
+            available: true,
+            borrowed: true
+        };
+        let currentEditingBook = null;
+        let qrMode = false;
+        let selectedBooks = new Set();
+
+        document.addEventListener('DOMContentLoaded', function() {
+            checkAuth();
+            setupEventListeners();
+            loadBooks();
+            
+            // URL パラメータから ISBN を受け取る処理
+            const urlParams = new URLSearchParams(window.location.search);
+            const isbnFromUrl = urlParams.get('isbn');
+            if (isbnFromUrl) {
+                document.getElementById('quick-isbn').value = isbnFromUrl;
+                // 自動で登録処理を実行
+                setTimeout(quickRegister, 500);
+            }
+        });
+
+        function checkAuth() {
+            const facilityId = sessionStorage.getItem('facilityId');
+            if (!facilityId) {
+                window.location.href = 'index.html';
+                return;
+            }
+        }
+
+        function setupEventListeners() {
+            const searchInput = document.getElementById('search-input');
+            const filterAvailable = document.getElementById('filter-available');
+            const filterBorrowed = document.getElementById('filter-borrowed');
+            const modal = document.getElementById('book-modal');
+            const editModal = document.getElementById('edit-modal');
+            const closeBtn = document.querySelector('.close');
+            const closeEditBtn = document.querySelector('.close-edit');
+            const userStatusSelect = document.getElementById('edit-user-status');
+
+            searchInput.addEventListener('input', filterBooks);
+            filterAvailable.addEventListener('change', updateFilters);
+            filterBorrowed.addEventListener('change', updateFilters);
+
+            closeBtn.addEventListener('click', () => {
+                modal.style.display = 'none';
+            });
+
+            closeEditBtn.addEventListener('click', () => {
+                closeEditModal();
+            });
+
+            userStatusSelect.addEventListener('change', (e) => {
+                const userIdGroup = document.getElementById('user-id-group');
+                if (e.target.value === 'manual') {
+                    userIdGroup.style.display = 'block';
+                } else {
+                    userIdGroup.style.display = 'none';
+                    document.getElementById('edit-user-id').value = '';
+                }
+            });
+
+            window.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.style.display = 'none';
+                }
+                if (e.target === editModal) {
+                    closeEditModal();
+                }
+            });
+        }
+
+        async function loadBooks() {
+            try {
+                console.log('Loading books from Firestore...');
+                const booksRef = collection(db, 'book'); // コレクション名を'book'に変更
+                const querySnapshot = await getDocs(booksRef);
+                
+                console.log('Query snapshot size:', querySnapshot.size);
+                
+                allBooks = [];
+                querySnapshot.forEach((doc) => {
+                    const data = doc.data();
+                    console.log('Book data:', data);
+                    
+                    // Swift版と同様の構造でデータを処理
+                    const bookData = {
+                        id: doc.id,
+                        userId: data.user_id,
+                        name: data.name,
+                        code: typeof data.code === 'number' ? String(data.code) : data.code,
+                        manage_num: data.manage_num,
+                        thumbnail_url: data.thumbnail_url,
+                        published_date: data.published_date,
+                        description: data.description
+                    };
+                    
+                    allBooks.push(bookData);
+                });
+
+                console.log('All books loaded:', allBooks);
+                displayBooks(allBooks);
+            } catch (error) {
+                console.error('書籍の読み込みに失敗しました:', error);
+                document.getElementById('books-container').innerHTML = 
+                    '<div class="card"><p>書籍の読み込みに失敗しました。エラー: ' + error.message + '</p></div>';
+            }
+        }
+
+        function updateFilters() {
+            currentFilters.available = document.getElementById('filter-available').checked;
+            currentFilters.borrowed = document.getElementById('filter-borrowed').checked;
+            filterBooks();
+        }
+
+        function filterBooks() {
+            const searchTerm = document.getElementById('search-input').value.toLowerCase();
+            
+            const filteredBooks = allBooks.filter(book => {
+                const matchesSearch = book.name.toLowerCase().includes(searchTerm);
+                const status = book.userId ? 'borrowed' : 'available';
+                const matchesFilter = currentFilters[status] || false;
+                return matchesSearch && matchesFilter;
+            });
+
+            displayBooks(filteredBooks);
+        }
+
+        function displayBooks(books) {
+            const container = document.getElementById('books-container');
+            
+            if (books.length === 0) {
+                container.innerHTML = '<div class="card"><p>該当する書籍が見つかりませんでした。</p></div>';
+                return;
+            }
+
+            const booksHtml = books.map(book => `
+                <div class="card book-card ${qrMode ? 'qr-selectable' : ''}" 
+                     onclick="${qrMode ? `toggleBookSelection('${book.id}')` : `showBookDetails('${book.id}')`}"
+                     data-book-id="${book.id}">
+                    ${qrMode ? `
+                        <div class="book-checkbox">
+                            <input type="checkbox" 
+                                   id="book-${book.id}" 
+                                   ${selectedBooks.has(book.id) ? 'checked' : ''} 
+                                   onclick="event.stopPropagation(); toggleBookSelection('${book.id}')">
+                            <label for="book-${book.id}"></label>
+                        </div>
+                    ` : ''}
+                    <div style="display: flex; gap: 1rem;">
+                        ${book.thumbnail_url ? `<img src="${book.thumbnail_url}" alt="${book.name}" class="book-thumbnail">` : ''}
+                        <div style="flex: 1;">
+                            <div class="book-title">${book.name}</div>
+                            <div class="book-info">ISBN: ${book.code || '不明'}</div>
+                            <div class="book-info">管理番号: ${book.manage_num || '不明'}</div>
+                            <div style="margin-top: 0.5rem;">
+                                <span class="status-label ${getStatusClass(book.userId)}">
+                                    ${getStatusText(book.userId)}
+                                </span>
+                            </div>
+                            ${book.description ? `<div class="book-info" style="margin-top: 0.5rem; font-size: 0.8rem; color: #666;">${book.description.substring(0, 100)}...</div>` : ''}
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+
+            container.innerHTML = booksHtml;
+        }
+
+        function getStatusText(userId) {
+            return userId ? '貸出中' : '貸出可能';
+        }
+
+        function getStatusClass(userId) {
+            return userId ? 'borrowed' : 'available';
+        }
+
+        function formatDate(dateString) {
+            if (!dateString) return '不明';
+            const date = new Date(dateString);
+            return date.toLocaleDateString('ja-JP');
+        }
+
+        window.showBookDetails = async function(bookId) {
+            console.log('showBookDetails called with ID:', bookId);
+            const modal = document.getElementById('book-modal');
+            const detailsContainer = document.getElementById('book-details');
+            
+            try {
+                console.log('Fetching book details for ID:', bookId);
+                const bookDoc = await getDoc(doc(db, 'book', bookId)); // コレクション名を'book'に修正
+                console.log('Book document exists:', bookDoc.exists());
+                
+                if (!bookDoc.exists()) {
+                    console.log('Book not found with ID:', bookId);
+                    detailsContainer.innerHTML = '<p>書籍が見つかりませんでした。書籍ID: ' + bookId + '</p>';
+                    modal.style.display = 'block';
+                    return;
+                }
+
+                const bookData = bookDoc.data();
+                console.log('Raw book data:', bookData);
+                
+                // Swift版と同様の構造でデータを処理
+                const book = {
+                    id: bookDoc.id,
+                    userId: bookData.user_id,
+                    name: bookData.name,
+                    code: typeof bookData.code === 'number' ? String(bookData.code) : bookData.code,
+                    manage_num: bookData.manage_num,
+                    thumbnail_url: bookData.thumbnail_url,
+                    published_date: bookData.published_date,
+                    description: bookData.description
+                };
+                
+                console.log('Processed book data:', book);
+                
+                const detailsHtml = `
+                    <div style="display: flex; gap: 2rem; margin-bottom: 2rem;">
+                        ${book.thumbnail_url ? `<img src="${book.thumbnail_url}" alt="${book.name}" class="book-thumbnail-detail">` : ''}
+                        <div style="flex: 1;">
+                            <h2>${book.name}</h2>
+                            <div class="book-info"><strong>ISBN:</strong> ${book.code || '不明'}</div>
+                            <div class="book-info"><strong>管理番号:</strong> ${book.manage_num || '不明'}</div>
+                            <div class="book-info"><strong>出版日:</strong> ${book.published_date || '不明'}</div>
+                            <div class="book-info" style="margin-top: 1rem;">
+                                <strong>ステータス:</strong> 
+                                <span class="status-label ${getStatusClass(book.userId)}">
+                                    ${getStatusText(book.userId)}
+                                </span>
+                            </div>
+                            ${book.userId ? `<div class="book-info" style="margin-top: 0.5rem;"><strong>貸出ユーザーID:</strong> ${book.userId}</div>` : ''}
+                        </div>
+                    </div>
+                    ${book.description ? `<div class="book-info" style="margin-top: 1rem;"><strong>説明:</strong><br>${book.description}</div>` : ''}
+                    
+                    <div style="margin-top: 2rem; text-align: center;">
+                        <button class="btn btn-primary" onclick="editBook('${book.id}')">📝 編集</button>
+                    </div>
+                    
+                    <h3 style="margin-top: 2rem;">貸出履歴</h3>
+                    <div id="lending-history">
+                        <p>貸出履歴機能は今後実装予定です。</p>
+                    </div>
+                `;
+
+                detailsContainer.innerHTML = detailsHtml;
+                modal.style.display = 'block';
+            } catch (error) {
+                console.error('書籍詳細の読み込みに失敗しました:', error);
+                detailsContainer.innerHTML = '<p>書籍詳細の読み込みに失敗しました。エラー: ' + error.message + '</p>';
+                modal.style.display = 'block';
+            }
+        }
+
+        window.editBook = async function(bookId) {
+            console.log('Edit book called with ID:', bookId);
+            
+            try {
+                const bookDoc = await getDoc(doc(db, 'book', bookId));
+                if (!bookDoc.exists()) {
+                    alert('書籍が見つかりませんでした。');
+                    return;
+                }
+
+                const bookData = bookDoc.data();
+                currentEditingBook = { id: bookId, ...bookData };
+                
+                // フォームに現在のデータを設定
+                document.getElementById('edit-name').value = bookData.name || '';
+                document.getElementById('edit-code').value = bookData.code || '';
+                document.getElementById('edit-manage-num').value = bookData.manage_num || '';
+                document.getElementById('edit-location').value = bookData.location || '';
+                document.getElementById('edit-remarks').value = bookData.remarks || '';
+                
+                // 貸出状況の設定
+                const userStatusSelect = document.getElementById('edit-user-status');
+                const userIdGroup = document.getElementById('user-id-group');
+                const userIdInput = document.getElementById('edit-user-id');
+                
+                if (bookData.user_id) {
+                    userStatusSelect.value = 'manual';
+                    userIdGroup.style.display = 'block';
+                    userIdInput.value = bookData.user_id;
+                } else {
+                    userStatusSelect.value = '';
+                    userIdGroup.style.display = 'none';
+                    userIdInput.value = '';
+                }
+                
+                // 詳細モーダルを閉じて編集モーダルを開く
+                document.getElementById('book-modal').style.display = 'none';
+                document.getElementById('edit-modal').style.display = 'block';
+                
+            } catch (error) {
+                console.error('Edit book error:', error);
+                alert('書籍情報の取得に失敗しました: ' + error.message);
+            }
+        }
+
+        window.saveBookChanges = async function() {
+            if (!currentEditingBook) {
+                alert('編集対象の書籍が選択されていません。');
+                return;
+            }
+
+            const manageNum = document.getElementById('edit-manage-num').value.trim();
+            if (!manageNum) {
+                alert('管理番号は必須です。');
+                return;
+            }
+
+            try {
+                const updates = {
+                    manage_num: manageNum,
+                    location: document.getElementById('edit-location').value.trim(),
+                    remarks: document.getElementById('edit-remarks').value.trim(),
+                    updated_at: new Date().toISOString()
+                };
+
+                // 貸出状況の更新
+                const userStatus = document.getElementById('edit-user-status').value;
+                if (userStatus === 'manual') {
+                    const userId = document.getElementById('edit-user-id').value.trim();
+                    updates.user_id = userId || null;
+                } else {
+                    updates.user_id = null;
+                }
+
+                await updateDoc(doc(db, 'book', currentEditingBook.id), updates);
+                
+                alert('書籍情報が更新されました！');
+                closeEditModal();
+                loadBooks(); // リストを再読み込み
+                
+            } catch (error) {
+                console.error('Save changes error:', error);
+                alert('書籍情報の更新に失敗しました: ' + error.message);
+            }
+        }
+
+        window.deleteBook = async function() {
+            if (!currentEditingBook) {
+                alert('削除対象の書籍が選択されていません。');
+                return;
+            }
+
+            const bookName = currentEditingBook.name || '不明';
+            if (!confirm(`「${bookName}」を削除してもよろしいですか？\n\nこの操作は取り消せません。`)) {
+                return;
+            }
+
+            try {
+                await deleteDoc(doc(db, 'book', currentEditingBook.id));
+                
+                alert('書籍が削除されました。');
+                closeEditModal();
+                loadBooks(); // リストを再読み込み
+                
+            } catch (error) {
+                console.error('Delete book error:', error);
+                alert('書籍の削除に失敗しました: ' + error.message);
+            }
+        }
+
+        window.closeEditModal = function() {
+            document.getElementById('edit-modal').style.display = 'none';
+            currentEditingBook = null;
+            
+            // フォームをリセット
+            document.getElementById('edit-name').value = '';
+            document.getElementById('edit-code').value = '';
+            document.getElementById('edit-manage-num').value = '';
+            document.getElementById('edit-location').value = '';
+            document.getElementById('edit-remarks').value = '';
+            document.getElementById('edit-user-status').value = '';
+            document.getElementById('edit-user-id').value = '';
+            document.getElementById('user-id-group').style.display = 'none';
+        }
+
+        // 新規登録機能
+        window.showQRCode = async function() {
+            try {
+                const currentUrl = window.location.href;
+                const scannerUrl = currentUrl.replace('books.html', 'scanner.html');
+                
+                document.getElementById('scanner-url-display').textContent = scannerUrl;
+                
+                // まずライブラリベースの方法を試す
+                try {
+                    if (typeof QRCode === 'undefined') {
+                        console.log('Loading QRCode library...');
+                        await loadQRCodeLibrary();
+                    }
+                    
+                    // QRコードを画像として生成
+                    QRCode.toDataURL(scannerUrl, {
+                        width: 200,
+                        margin: 2,
+                        color: {
+                            dark: '#000000',
+                            light: '#FFFFFF'
+                        }
+                    }, function (error, url) {
+                        if (error) {
+                            console.error('QRコード生成エラー:', error);
+                            fallbackQRCode(scannerUrl);
+                            return;
+                        }
+                        const qrContainer = document.getElementById('qrcode-display');
+                        qrContainer.innerHTML = `<img src="${url}" alt="QRコード" style="max-width: 200px; border: 1px solid #ddd; border-radius: 8px;">`;
+                    });
+                } catch (libraryError) {
+                    console.warn('ライブラリでのQRコード生成に失敗、代替方法を使用:', libraryError);
+                    fallbackQRCode(scannerUrl);
+                }
+                
+                document.getElementById('qr-section').style.display = 'block';
+            } catch (error) {
+                console.error('QRコード表示エラー:', error);
+                alert('QRコードの表示に失敗しました: ' + error.message);
+            }
+        }
+
+        // 代替QRコード生成方法（APIベース）
+        function fallbackQRCode(url) {
+            console.log('Using fallback QR code generation');
+            const qrContainer = document.getElementById('qrcode-display');
+            
+            // QR Server APIを使用（無料のQRコード生成API）
+            const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
+            
+            qrContainer.innerHTML = `
+                <img src="${qrApiUrl}" 
+                     alt="QRコード" 
+                     style="max-width: 200px; border: 1px solid #ddd; border-radius: 8px;"
+                     onload="console.log('QR code loaded via API')"
+                     onerror="console.error('Failed to load QR code via API'); this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzMzMyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkVSUk9SPC90ZXh0Pjwvc3ZnPg==';">
+            `;
+        }
+
+        // QRCodeライブラリを動的に読み込む関数
+        function loadQRCodeLibrary() {
+            return new Promise((resolve, reject) => {
+                if (typeof QRCode !== 'undefined') {
+                    resolve();
+                    return;
+                }
+                
+                // 複数のCDNを試す
+                const cdnUrls = [
+                    'https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js',
+                    'https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js',
+                    'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js'
+                ];
+                
+                let currentIndex = 0;
+                
+                function tryLoadScript() {
+                    if (currentIndex >= cdnUrls.length) {
+                        reject(new Error('すべてのQRCodeライブラリCDNで読み込みに失敗しました'));
+                        return;
+                    }
+                    
+                    const script = document.createElement('script');
+                    script.src = cdnUrls[currentIndex];
+                    console.log(`Trying CDN ${currentIndex + 1}: ${cdnUrls[currentIndex]}`);
+                    
+                    script.onload = () => {
+                        console.log(`QRCode library loaded successfully from CDN ${currentIndex + 1}`);
+                        resolve();
+                    };
+                    
+                    script.onerror = () => {
+                        console.warn(`Failed to load from CDN ${currentIndex + 1}`);
+                        currentIndex++;
+                        tryLoadScript();
+                    };
+                    
+                    document.head.appendChild(script);
+                }
+                
+                tryLoadScript();
+            });
+        }
+
+        window.hideQRCode = function() {
+            document.getElementById('qr-section').style.display = 'none';
+        }
+
+        window.quickRegister = async function() {
+            const isbn = document.getElementById('quick-isbn').value.trim();
+            if (!isbn) {
+                alert('ISBNコードを入力してください。');
+                return;
+            }
+
+            if (isbn.length !== 13 && isbn.length !== 10) {
+                alert('10桁または13桁のISBNコードを入力してください。');
+                return;
+            }
+
+            try {
+                const bookInfo = await fetchBookFromGoogleAPI(isbn);
+                const registered = await registerBookToFirestore(bookInfo);
+                
+                if (registered) {
+                    alert(`「${bookInfo.name}」が正常に登録されました！`);
+                    document.getElementById('quick-isbn').value = '';
+                    loadBooks(); // リストを再読み込み
+                }
+            } catch (error) {
+                alert('書籍の登録に失敗しました: ' + error.message);
+                console.error('Quick register error:', error);
+            }
+        }
+
+        async function fetchBookFromGoogleAPI(isbn) {
+            // 10桁ISBNを13桁に変換
+            let isbn13 = isbn;
+            if (isbn.length === 10) {
+                isbn13 = convertISBN10to13(isbn);
+            }
+            
+            const response = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn13}`);
+            const data = await response.json();
+            
+            if (!data.items || data.items.length === 0) {
+                throw new Error('書籍が見つかりませんでした');
+            }
+
+            const book = data.items[0];
+            const volumeInfo = book.volumeInfo;
+            
+            return {
+                code: isbn13,
+                name: volumeInfo.title || '不明',
+                description: volumeInfo.description || '',
+                thumbnail_url: volumeInfo.imageLinks?.thumbnail || '',
+                published_date: volumeInfo.publishedDate || '',
+                manage_num: `${isbn13}_001`
+            };
+        }
+
+        function convertISBN10to13(isbn10) {
+            const prefix = '978' + isbn10.substring(0, 9);
+            let sum = 0;
+            for (let i = 0; i < 12; i++) {
+                sum += parseInt(prefix[i]) * (i % 2 === 0 ? 1 : 3);
+            }
+            const checkDigit = (10 - (sum % 10)) % 10;
+            return prefix + checkDigit;
+        }
+
+        async function registerBookToFirestore(bookData) {
+            try {
+                // 同じISBNの書籍を検索して次の管理番号を決定
+                const nextManageNum = await getNextManageNumber(db, bookData.code);
+                
+                const finalBookData = {
+                    ...bookData,
+                    manage_num: nextManageNum,
+                    user_id: null,
+                    location: '',
+                    remarks: '',
+                    created_at: new Date().toISOString()
+                };
+
+                console.log(`Generated manage_num: ${nextManageNum} for ISBN: ${bookData.code}`);
+
+                const docRef = await addDoc(collection(db, 'book'), finalBookData);
+                console.log('Document written with ID: ', docRef.id);
+                return true;
+                
+            } catch (error) {
+                console.error('Firestore registration error:', error);
+                throw error;
+            }
+        }
+
+        async function getNextManageNumber(db, isbn) {
+            try {
+                // 同じISBNの書籍を検索
+                const booksRef = collection(db, 'book');
+                const q = query(booksRef, where('code', '==', isbn));
+                const querySnapshot = await getDocs(q);
+                
+                console.log(`Found ${querySnapshot.size} existing books with ISBN: ${isbn}`);
+                
+                if (querySnapshot.empty) {
+                    // 初回登録の場合
+                    return `${isbn}_001`;
+                }
+                
+                // 既存の管理番号から最大の通し番号を取得
+                let maxNumber = 0;
+                querySnapshot.forEach((doc) => {
+                    const data = doc.data();
+                    const manageNum = data.manage_num;
+                    
+                    if (manageNum && typeof manageNum === 'string') {
+                        // 管理番号の形式: ISBN_XXX
+                        const parts = manageNum.split('_');
+                        if (parts.length >= 2) {
+                            const numberPart = parts[parts.length - 1]; // 最後の部分を取得
+                            const num = parseInt(numberPart);
+                            if (!isNaN(num) && num > maxNumber) {
+                                maxNumber = num;
+                            }
+                        }
+                    }
+                });
+                
+                console.log(`Max existing number for ISBN ${isbn}: ${maxNumber}`);
+                
+                // 次の番号を生成（3桁ゼロパディング）
+                const nextNumber = maxNumber + 1;
+                const paddedNumber = String(nextNumber).padStart(3, '0');
+                
+                return `${isbn}_${paddedNumber}`;
+                
+            } catch (error) {
+                console.error('Error getting next manage number:', error);
+                // エラーの場合はタイムスタンプを使用してユニークにする
+                const timestamp = Date.now().toString().slice(-6);
+                return `${isbn}_${timestamp}`;
+            }
+        }
+
+        // QRモード関連の機能
+        window.toggleQRMode = function() {
+            qrMode = !qrMode;
+            selectedBooks.clear();
+            
+            const btn = document.getElementById('qr-mode-btn');
+            const controls = document.getElementById('qr-controls');
+            
+            if (qrMode) {
+                btn.textContent = '❌ QRモード終了';
+                btn.style.backgroundColor = '#e3342f';
+                controls.style.display = 'flex';
+            } else {
+                btn.textContent = '🏷️ QRラベル発行モード';
+                btn.style.backgroundColor = '';
+                controls.style.display = 'none';
+            }
+            
+            updateSelectedCount();
+            displayBooks(filterCurrentBooks());
+        }
+
+        window.toggleBookSelection = function(bookId) {
+            if (selectedBooks.has(bookId)) {
+                selectedBooks.delete(bookId);
+            } else {
+                selectedBooks.add(bookId);
+            }
+            
+            updateSelectedCount();
+            updateBookCardSelection(bookId);
+        }
+
+        function updateBookCardSelection(bookId) {
+            const card = document.querySelector(`[data-book-id="${bookId}"]`);
+            const checkbox = document.getElementById(`book-${bookId}`);
+            
+            if (card && checkbox) {
+                if (selectedBooks.has(bookId)) {
+                    card.classList.add('selected');
+                    checkbox.checked = true;
+                } else {
+                    card.classList.remove('selected');
+                    checkbox.checked = false;
+                }
+            }
+        }
+
+        window.selectAllBooks = function() {
+            const visibleBooks = filterCurrentBooks();
+            visibleBooks.forEach(book => selectedBooks.add(book.id));
+            updateSelectedCount();
+            displayBooks(visibleBooks);
+        }
+
+        window.clearAllBooks = function() {
+            selectedBooks.clear();
+            updateSelectedCount();
+            displayBooks(filterCurrentBooks());
+        }
+
+        function updateSelectedCount() {
+            const countElement = document.getElementById('selected-count');
+            if (countElement) {
+                countElement.textContent = `${selectedBooks.size}冊選択中`;
+            }
+        }
+
+        function filterCurrentBooks() {
+            const searchTerm = document.getElementById('search-input').value.toLowerCase();
+            
+            return allBooks.filter(book => {
+                const matchesSearch = book.name.toLowerCase().includes(searchTerm);
+                const status = book.userId ? 'borrowed' : 'available';
+                const matchesFilter = currentFilters[status] || false;
+                return matchesSearch && matchesFilter;
+            });
+        }
+
+        window.generateQRPDF = async function() {
+            if (selectedBooks.size === 0) {
+                alert('書籍を選択してください。');
+                return;
+            }
+
+            try {
+                // jsPDFライブラリを動的に読み込み
+                if (typeof jsPDF === 'undefined') {
+                    console.log('Loading jsPDF library...');
+                    await loadJSPDFLibrary();
+                }
+
+                // QRCodeライブラリも必要
+                if (typeof QRCode === 'undefined') {
+                    console.log('Loading QRCode library...');
+                    await loadQRCodeLibrary();
+                }
+
+                await createQRLabelsPDF();
+                
+            } catch (error) {
+                console.error('PDF生成エラー:', error);
+                alert('PDF生成に失敗しました: ' + error.message);
+            }
+        }
+
+        function loadJSPDFLibrary() {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+                script.onload = () => {
+                    console.log('jsPDF library loaded successfully');
+                    resolve();
+                };
+                script.onerror = () => {
+                    reject(new Error('jsPDFライブラリの読み込みに失敗しました'));
+                };
+                document.head.appendChild(script);
+            });
+        }
+
+        async function createQRLabelsPDF() {
+            const selectedBookData = allBooks.filter(book => selectedBooks.has(book.id));
+            console.log('Creating PDF for books:', selectedBookData);
+
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            
+            // フォント設定（日本語対応）
+            doc.setFont('helvetica');
+            
+            let yPosition = 20;
+            const pageHeight = doc.internal.pageSize.height;
+            const labelHeight = 60; // 各ラベルの高さ
+            
+            for (let i = 0; i < selectedBookData.length; i++) {
+                const book = selectedBookData[i];
+                
+                // 新しいページが必要な場合
+                if (yPosition + labelHeight > pageHeight - 20) {
+                    doc.addPage();
+                    yPosition = 20;
+                }
+                
+                // QRコード生成
+                try {
+                    const qrDataURL = await generateQRCodeDataURL(book.manage_num || 'NO_MANAGE_NUM');
+                    
+                    // QRコード画像を追加
+                    doc.addImage(qrDataURL, 'PNG', 10, yPosition, 40, 40);
+                    
+                    // 書籍情報を追加
+                    doc.setFontSize(14);
+                    doc.text(book.name || '書籍名不明', 60, yPosition + 10);
+                    
+                    doc.setFontSize(10);
+                    doc.text(`管理番号: ${book.manage_num || '不明'}`, 60, yPosition + 20);
+                    doc.text(`ISBN: ${book.code || '不明'}`, 60, yPosition + 30);
+                    
+                    // 区切り線
+                    doc.line(10, yPosition + 50, 200, yPosition + 50);
+                    
+                } catch (qrError) {
+                    console.error('QRコード生成エラー:', qrError);
+                    // QRコードなしでもラベルを作成
+                    doc.setFontSize(14);
+                    doc.text(book.name || '書籍名不明', 10, yPosition + 10);
+                    doc.setFontSize(10);
+                    doc.text(`管理番号: ${book.manage_num || '不明'}`, 10, yPosition + 20);
+                    doc.text(`ISBN: ${book.code || '不明'}`, 10, yPosition + 30);
+                    doc.text('QRコード生成失敗', 10, yPosition + 40);
+                    doc.line(10, yPosition + 50, 200, yPosition + 50);
+                }
+                
+                yPosition += labelHeight;
+            }
+            
+            // PDFをダウンロード
+            const fileName = `book_labels_${new Date().toISOString().slice(0, 10)}.pdf`;
+            doc.save(fileName);
+            
+            console.log(`PDF generated: ${fileName}`);
+            alert(`${selectedBooks.size}冊のQRラベルPDFを生成しました！`);
+        }
+
+        function generateQRCodeDataURL(text) {
+            return new Promise((resolve, reject) => {
+                QRCode.toDataURL(text, {
+                    width: 200,
+                    margin: 1,
+                    color: {
+                        dark: '#000000',
+                        light: '#FFFFFF'
+                    }
+                }, function (error, url) {
+                    if (error) {
+                        reject(error);
+                    } else {
+                        resolve(url);
+                    }
+                });
+            });
+        }
+
+        window.logout = function() {
+            sessionStorage.removeItem('facilityId');
+            window.location.href = 'index.html';
+        }
+    </script>
+</body>
+</html>
